@@ -1,5 +1,15 @@
 import sys
 import os
+
+# ===================================================================================
+# --- SİHİRLİ DOKUNUŞ: EKRAN KARTI (GPU) PAYLAŞIM VE ÇAKIŞMA ÖNLEYİCİ AYARLAR ---
+# DİKKAT: Bu ayarların PyQt6 kütüphaneleri import edilmeden ÖNCE yazılması şarttır!
+# ===================================================================================
+# 1. PyQt6'nın arka planda Windows'un Direct3D'si yerine saf OpenGL kullanmasını zorunlu kılıyoruz.
+os.environ["QSG_RHI_BACKEND"] = "opengl"
+# 2. WebEngine'in (Haritanın) ekran kartını sömürmesini engelliyor, işlemi işlemciye (CPU) yıkıyoruz.
+os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = "--disable-gpu"
+
 import serial.tools.list_ports
 import datetime
 import traceback
@@ -7,36 +17,10 @@ import cv2
 import numpy as np
 import random
 import io
+import folium
 import pyqtgraph as pg
 import pyqtgraph.opengl as gl
-import folium
-
-
 from PyQt6.QtWebEngineWidgets import QWebEngineView
-
-# --- 1. GPU ÇAKIŞMASINI ÖNLEYEN DİKTATÖR KOMUTLAR ---
-os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = "--disable-gpu --disable-gpu-compositing --disable-software-rasterizer"
-os.environ["QT_OPENGL"] = "desktop"
-sys.argv.extend(["--disable-gpu", "--disable-gpu-compositing"])
-
-# --- 2. SESSİZ ÇÖKMELERİ ÖNLEYEN HATA YAKALAYICI ---
-def excepthook(exc_type, exc_value, exc_tb):
-    tb = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
-    print("\n--- SİSTEM HATASI TESPİT EDİLDİ ---")
-    print(tb)
-    print("-----------------------------------\n")
-    from PyQt6.QtWidgets import QApplication
-    QApplication.quit()
-
-sys.excepthook = excepthook
-
-# --- 3. SERİ PORT KONTROLÜ ---
-try:
-    import serial
-except ImportError:
-    print("HATA: 'pyserial' yüklü değil! Lütfen terminale 'pip install pyserial' yazın.")
-    sys.exit(1)
-
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QLabel,
                              QVBoxLayout, QHBoxLayout, QPushButton, QGroupBox,
                              QCheckBox, QComboBox, QTableWidget,
@@ -45,6 +29,27 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QLabel,
 from PyQt6.QtCore import QTimer, Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QImage, QPixmap
 from Telemetri import TelemetriVerisi
+
+
+# --- SESSİZ ÇÖKMELERİ ÖNLEYEN HATA YAKALAYICI ---
+def excepthook(exc_type, exc_value, exc_tb):
+    tb = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+    print("\n--- SİSTEM HATASI TESPİT EDİLDİ ---")
+    print(tb)
+    print("-----------------------------------\n")
+    from PyQt6.QtWidgets import QApplication
+    QApplication.quit()
+
+
+sys.excepthook = excepthook
+
+# --- SERİ PORT KONTROLÜ ---
+try:
+    import serial
+except ImportError:
+    print("HATA: 'pyserial' yüklü değil! Lütfen terminale 'pip install pyserial' yazın.")
+    sys.exit(1)
+
 
 # --- VIDEO THREAD ---
 class VideoThread(QThread):
@@ -61,6 +66,7 @@ class VideoThread(QThread):
                 self.msleep(30)
         except Exception as e:
             pass
+
 
 class YerIstasyonu(QMainWindow):
     def __init__(self):
@@ -130,28 +136,34 @@ class YerIstasyonu(QMainWindow):
         self.layout_kamera.addWidget(self.video_etiketi)
         self.ust_layout.addWidget(self.grp_kamera, 30)
 
-        # GPS HARİTA
+        # ====================================================================
+        # CANLI HARİTA VE 3D SİLİNDİR YARATMA (SORUNSUZ ÇALIŞACAK KISIM)
+        # ====================================================================
+        self.gl_widget = gl.GLViewWidget()
+        self.gl_widget.setBackgroundColor('#121212')
+        self.gl_widget.setCameraPosition(distance=40)
+
+        # Folium Canlı Haritası (QWebEngineView)
+        self.harita_widget = QWebEngineView()
+        # ====================================================================
+
+        # GPS HARİTA KUTUSU
         self.grp_gps = QGroupBox("GPS KONUM")
         self.layout_gps = QVBoxLayout()
         self.grp_gps.setLayout(self.layout_gps)
-
-        self.harita_widget = QWebEngineView()
         self.layout_gps.addWidget(self.harita_widget)
         self.ust_layout.addWidget(self.grp_gps, 30)
 
         self.haritayi_ciz(39.92, 32.85)
 
-        # 3D SİMÜLASYON
+        # 3D SİMÜLASYON KUTUSU
         self.grp_sim = QGroupBox("3D SİMÜLASYON")
         self.layout_sim = QVBoxLayout()
         self.grp_sim.setLayout(self.layout_sim)
 
-        self.gl_widget = gl.GLViewWidget()
-        self.gl_widget.setBackgroundColor('#121212')
-        self.gl_widget.setCameraPosition(distance=30)
-
-        axis = gl.GLAxisItem()
-        self.gl_widget.addItem(axis)
+        # Uzayın (Dünyanın) sabit merkez ekseni (Referans için soluk ve büyük)
+        uzay_ekseni = gl.GLAxisItem(size=pg.Vector(20, 20, 20))
+        self.gl_widget.addItem(uzay_ekseni)
 
         self.layout_sim.addWidget(self.gl_widget)
         self.ust_layout.addWidget(self.grp_sim, 30)
@@ -159,8 +171,15 @@ class YerIstasyonu(QMainWindow):
         grid = gl.GLGridItem()
         self.gl_widget.addItem(grid)
 
-        self.uydu_3d = gl.GLBoxItem(size=pg.Vector(5, 5, 10), color=(52, 152, 219, 255))
+        # SİLİNDİR AĞ (MESH) MODELİ
+        silindir_mesh = gl.MeshData.cylinder(rows=10, cols=20, radius=[2.0, 2.0], length=10.0)
+        self.uydu_3d = gl.GLMeshItem(meshdata=silindir_mesh, smooth=True, color=(0.2, 0.6, 0.86, 1.0), shader='shaded')
         self.gl_widget.addItem(self.uydu_3d)
+
+        # UYDUYA ÖZEL HAREKETLİ EKSEN (Kırmızı=X/Roll, Yeşil=Y/Pitch, Mavi=Z/Yaw)
+        # Silindirden dışarı taşması için boyutunu 8 birim yaptık
+        self.uydu_eksen = gl.GLAxisItem(size=pg.Vector(8, 8, 8))
+        self.gl_widget.addItem(self.uydu_eksen)
 
         # YAZILIM DURUMU
         self.grp_akis = QGroupBox("AKIŞ")
@@ -174,7 +193,8 @@ class YerIstasyonu(QMainWindow):
         self.chk_inis = QCheckBox("5. İniş")
         self.chk_kurtarma = QCheckBox("6. Bitiş")
 
-        for chk in [self.chk_baslangic, self.chk_kalibrasyon, self.chk_yukselme, self.chk_ayrilma, self.chk_inis, self.chk_kurtarma]:
+        for chk in [self.chk_baslangic, self.chk_kalibrasyon, self.chk_yukselme, self.chk_ayrilma, self.chk_inis,
+                    self.chk_kurtarma]:
             chk.setEnabled(False)
             chk.setStyleSheet("color: #ccc; font-weight: normal; font-size: 10px;")
             self.layout_akis.addWidget(chk)
@@ -322,7 +342,6 @@ class YerIstasyonu(QMainWindow):
         self.timer.start(100)
 
     # SINIF FONKSİYONLARI
-
     def portlari_guncelle(self):
         self.combo_port.clear()
         portlar = serial.tools.list_ports.comports()
@@ -353,7 +372,7 @@ class YerIstasyonu(QMainWindow):
         else:
             port_adi = self.combo_port.currentText()
             try:
-                self.seri_port = serial.Serial(port_adi, 115200, timeout=0.1)
+                self.seri_port = serial.Serial(port_adi, 9600, timeout=0.1)
                 self.btn_baglan.setText("KOPAR")
                 self.btn_baglan.setStyleSheet("background-color: #c0392b;")
                 self.lbl_log_mini.setText(f"BAŞARILI: {port_adi}")
@@ -379,8 +398,11 @@ class YerIstasyonu(QMainWindow):
         hiz = 9.5 + random.uniform(-1, 1)
         sicaklik = 24.2 + random.uniform(-0.5, 0.5)
         pil = 8.1 - (pkt * 0.005)
-        lat = 39.92 + random.uniform(-0.0001, 0.0001)
-        lon = 32.85 + random.uniform(-0.0001, 0.0001)
+
+        # Test için her basıldığında enlem boylamı daha belirgin değiştirelim ki harita hareket etsin
+        lat = 39.92 + (pkt * 0.00005) + random.uniform(-0.00001, 0.00001)
+        lon = 32.85 + (pkt * 0.00005) + random.uniform(-0.00001, 0.00001)
+
         alt = 1330.3 + random.uniform(-2, 2)
         pitch = 15 + random.uniform(-2, 2)
         roll = -5 + random.uniform(-2, 2)
@@ -422,13 +444,14 @@ class YerIstasyonu(QMainWindow):
         if lat == 0.0 or lon == 0.0:
             return
 
-        if abs(self.son_harita_lat - lat) < 0.0001 and abs(self.son_harita_lon - lon) < 0.0001:
+        # Toleransı biraz düşürdük (yaklaşık 5 metre). Uydu sürüklendikçe Folium haritası güncellenecek.
+        if abs(self.son_harita_lat - lat) < 0.00005 and abs(self.son_harita_lon - lon) < 0.00005:
             return
 
         self.son_harita_lat = lat
         self.son_harita_lon = lon
 
-        m = folium.Map(location=[lat, lon], zoom_start=16, tiles='CartoDB positron')
+        m = folium.Map(location=[lat, lon], zoom_start=18, tiles='CartoDB positron')
         folium.Marker(
             [lat, lon],
             popup=f"Uydu\nLat: {lat:.5f}\nLon: {lon:.5f}",
@@ -440,11 +463,10 @@ class YerIstasyonu(QMainWindow):
         self.harita_widget.setHtml(data.getvalue().decode())
 
     def arayuzu_guncelle(self):
-        # Hata kodu kontrolleri [cite: 298, 299, 300, 304]
         is_hiz_ok = 8 <= self.telemetri_verisi.inis_hizi <= 10
         is_gps_ok = self.telemetri_verisi.gps_lat != 0
-        is_ayrilma_ok = int(self.telemetri_verisi.uydu_statu) >= 3 # 3: Ayrılma, 4: Görev Yükü İniş, 5: Kurtarma [cite: 363, 364, 365]
-        is_parasut_ok = False # Acil durum butonu basılmadıkça veya algoritmik tetiklenmedikçe False olmalı
+        is_ayrilma_ok = int(self.telemetri_verisi.uydu_statu) >= 3
+        is_parasut_ok = False
 
         def get_style(is_ok, reverse=False):
             color = "#27ae60" if is_ok else "#c0392b"
@@ -456,7 +478,6 @@ class YerIstasyonu(QMainWindow):
         self.ind_sep.setStyleSheet(get_style(is_ayrilma_ok))
         self.ind_par.setStyleSheet(get_style(is_parasut_ok, reverse=True))
 
-        # Akış Checkbox'larının güncellenmesi
         statu_int = int(self.telemetri_verisi.uydu_statu)
         if statu_int >= 1: self.chk_yukselme.setChecked(True)
         if statu_int >= 3: self.chk_ayrilma.setChecked(True)
@@ -491,7 +512,8 @@ class YerIstasyonu(QMainWindow):
         self.veri_pil.append(self.telemetri_verisi.pil_gerilimi)
 
         if len(self.veri_zaman) > 50:
-            for l in [self.veri_zaman, self.veri_basinc, self.veri_irtifa, self.veri_hiz, self.veri_sicaklik, self.veri_pil]:
+            for l in [self.veri_zaman, self.veri_basinc, self.veri_irtifa, self.veri_hiz, self.veri_sicaklik,
+                      self.veri_pil]:
                 l.pop(0)
 
         self.curve_hiz.setData(self.veri_zaman, self.veri_hiz)
@@ -502,14 +524,28 @@ class YerIstasyonu(QMainWindow):
 
         self.haritayi_ciz(self.telemetri_verisi.gps_lat, self.telemetri_verisi.gps_lon)
 
-        transform = pg.Transform3D()
-        transform.rotate(self.telemetri_verisi.roll, 1, 0, 0)
-        transform.rotate(self.telemetri_verisi.pitch, 0, 1, 0)
-        transform.rotate(self.telemetri_verisi.yaw, 0, 0, 1)
-        transform.translate(-2.5, -2.5, -5)
-        self.uydu_3d.setTransform(transform)
+        # ==========================================================
+        # 3D SİLİNDİR VE EKSEN DÖNÜŞÜMÜ (MATRİS MATEMATİĞİ)
+        # ==========================================================
+
+        # 1. Eksen Çizgileri İçin Transform (Sadece Dönecekler, merkezde kalacaklar)
+        eksen_transform = pg.Transform3D()
+        eksen_transform.rotate(self.telemetri_verisi.roll, 1, 0, 0)
+        eksen_transform.rotate(self.telemetri_verisi.pitch, 0, 1, 0)
+        eksen_transform.rotate(self.telemetri_verisi.yaw, 0, 0, 1)
+        self.uydu_eksen.setTransform(eksen_transform)
+
+        # 2. Silindir Uydu İçin Transform (Önce aşağı kaydırılıp merkezlenecek, sonra dönecek)
+        uydu_transform = pg.Transform3D()
+        uydu_transform.translate(0, 0, -5)  # Silindirin Z ekseni merkezini orijine çektik
+        uydu_transform.rotate(self.telemetri_verisi.roll, 1, 0, 0)
+        uydu_transform.rotate(self.telemetri_verisi.pitch, 0, 1, 0)
+        uydu_transform.rotate(self.telemetri_verisi.yaw, 0, 0, 1)
+        self.uydu_3d.setTransform(uydu_transform)
+
 
 if __name__ == "__main__":
+    QApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts)
     app = QApplication(sys.argv)
     pencere = YerIstasyonu()
     pencere.show()
