@@ -1,6 +1,13 @@
 import sys
 import os
 
+<<<<<<< HEAD
+=======
+# ===================================================================================
+# --- SİHİRLİ DOKUNUŞ: EKRAN KARTI (GPU) PAYLAŞIM VE ÇAKIŞMA ÖNLEYİCİ AYARLAR ---
+# DİKKAT: Bu ayarların PyQt6 kütüphaneleri import edilmeden ÖNCE yazılması şarttır!
+# ===================================================================================
+>>>>>>> d99e35998110fcf403f63656cee2957d9c1f53b5
 # 1. PyQt6'nın arka planda Windows'un Direct3D'si yerine saf OpenGL kullanmasını zorunlu kılıyoruz.
 os.environ["QSG_RHI_BACKEND"] = "opengl"
 # 2. WebEngine'in (Haritanın) ekran kartını sömürmesini engelliyor, işlemi işlemciye (CPU) yıkıyoruz.
@@ -440,7 +447,11 @@ class YerIstasyonu(QMainWindow):
         if lat == 0.0 or lon == 0.0:
             return
 
+<<<<<<< HEAD
         # Uydu sürüklendikçe Folium haritası güncellenecek.
+=======
+        # Toleransı biraz düşürdük (yaklaşık 5 metre). Uydu sürüklendikçe Folium haritası güncellenecek.
+>>>>>>> d99e35998110fcf403f63656cee2957d9c1f53b5
         if abs(self.son_harita_lat - lat) < 0.00005 and abs(self.son_harita_lon - lon) < 0.00005:
             return
 
