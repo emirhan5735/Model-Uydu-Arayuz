@@ -1,10 +1,6 @@
 import sys
 import os
 
-# ===================================================================================
-# --- SİHİRLİ DOKUNUŞ: EKRAN KARTI (GPU) PAYLAŞIM VE ÇAKIŞMA ÖNLEYİCİ AYARLAR ---
-# DİKKAT: Bu ayarların PyQt6 kütüphaneleri import edilmeden ÖNCE yazılması şarttır!
-# ===================================================================================
 # 1. PyQt6'nın arka planda Windows'un Direct3D'si yerine saf OpenGL kullanmasını zorunlu kılıyoruz.
 os.environ["QSG_RHI_BACKEND"] = "opengl"
 # 2. WebEngine'in ekran kartını sömürmesini engelliyor, işlemi işlemciye yıkıyoruz. (log-level=3 ile konsol hataları susturuldu)
