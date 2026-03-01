@@ -1,17 +1,14 @@
 import sys
 import os
 
-<<<<<<< HEAD
-=======
 # ===================================================================================
 # --- SİHİRLİ DOKUNUŞ: EKRAN KARTI (GPU) PAYLAŞIM VE ÇAKIŞMA ÖNLEYİCİ AYARLAR ---
 # DİKKAT: Bu ayarların PyQt6 kütüphaneleri import edilmeden ÖNCE yazılması şarttır!
 # ===================================================================================
->>>>>>> d99e35998110fcf403f63656cee2957d9c1f53b5
 # 1. PyQt6'nın arka planda Windows'un Direct3D'si yerine saf OpenGL kullanmasını zorunlu kılıyoruz.
 os.environ["QSG_RHI_BACKEND"] = "opengl"
-# 2. WebEngine'in (Haritanın) ekran kartını sömürmesini engelliyor, işlemi işlemciye (CPU) yıkıyoruz.
-os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = "--disable-gpu"
+# 2. WebEngine'in ekran kartını sömürmesini engelliyor, işlemi işlemciye yıkıyoruz. (log-level=3 ile konsol hataları susturuldu)
+os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = "--disable-gpu --log-level=3"
 
 import serial.tools.list_ports
 import datetime
@@ -159,18 +156,19 @@ class YerIstasyonu(QMainWindow):
 
         self.haritayi_ciz(39.92, 32.85)
 
-        # 3D SİMÜLASYON KUTUSU
+        # 3D SİMÜLASYON KUTUSU VE NESNELERİ
         self.grp_sim = QGroupBox("3D SİMÜLASYON")
         self.layout_sim = QVBoxLayout()
         self.grp_sim.setLayout(self.layout_sim)
 
-        # Uzayın (Dünyanın) sabit merkez ekseni (Referans için soluk ve büyük)
+        # Uzay (Merkez) Ekseni
         uzay_ekseni = gl.GLAxisItem(size=pg.Vector(20, 20, 20))
         self.gl_widget.addItem(uzay_ekseni)
 
         self.layout_sim.addWidget(self.gl_widget)
         self.ust_layout.addWidget(self.grp_sim, 30)
 
+        # Alt Izgara
         grid = gl.GLGridItem()
         self.gl_widget.addItem(grid)
 
@@ -180,7 +178,6 @@ class YerIstasyonu(QMainWindow):
         self.gl_widget.addItem(self.uydu_3d)
 
         # UYDUYA ÖZEL HAREKETLİ EKSEN (Kırmızı=X/Roll, Yeşil=Y/Pitch, Mavi=Z/Yaw)
-        # Silindirden dışarı taşması için boyutunu 8 birim yaptık
         self.uydu_eksen = gl.GLAxisItem(size=pg.Vector(8, 8, 8))
         self.gl_widget.addItem(self.uydu_eksen)
 
@@ -447,11 +444,7 @@ class YerIstasyonu(QMainWindow):
         if lat == 0.0 or lon == 0.0:
             return
 
-<<<<<<< HEAD
-        # Uydu sürüklendikçe Folium haritası güncellenecek.
-=======
         # Toleransı biraz düşürdük (yaklaşık 5 metre). Uydu sürüklendikçe Folium haritası güncellenecek.
->>>>>>> d99e35998110fcf403f63656cee2957d9c1f53b5
         if abs(self.son_harita_lat - lat) < 0.00005 and abs(self.son_harita_lon - lon) < 0.00005:
             return
 
